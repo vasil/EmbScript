@@ -15,21 +15,23 @@ def write_svg(
     path: Path,
     width_mm: float,
     height_mm: float,
-    layers: list[tuple[str, Polyline]],
+    layers: list[tuple[str, list[Polyline]]],
 ) -> None:
     """Write the embscript-shaped SVG.
 
-    Each entry in `layers` is (#RRGGBB, polyline). Coordinates are in millimetres,
-    y-down, matching SVG and most embroidery machine conventions.
+    Each entry in `layers` is (#RRGGBB, segments) where segments is a list of
+    polylines. Each contiguous segment becomes one <polyline> inside the layer's
+    <g>; disconnected segments stay visually separate (no connecting line).
     """
     dwg = svgwrite.Drawing(
         str(path),
         size=(f"{width_mm}mm", f"{height_mm}mm"),
         viewBox=f"0 0 {width_mm} {height_mm}",
     )
-    for i, (color, polyline) in enumerate(layers):
+    for i, (color, segments) in enumerate(layers):
         g = dwg.g(id=f"layer-{i}", stroke=color, fill="none", stroke_width=STROKE_WIDTH_MM)
-        if polyline:
-            g.add(dwg.polyline(points=polyline))
+        for segment in segments:
+            if segment:
+                g.add(dwg.polyline(points=segment))
         dwg.add(g)
     dwg.save()

@@ -24,16 +24,20 @@ class BrownianWalk:
         *,
         overlap_tolerance: float = 0.0,
         rng: np.random.Generator | None = None,
+        unlimited: bool = False,
         **_: object,
-    ) -> Polyline:
-        if target_stitches <= 0 or not mask.any():
+    ) -> list[Polyline]:
+        if not mask.any():
+            return []
+        if not unlimited and target_stitches <= 0:
             return []
 
         rng = rng if rng is not None else np.random.default_rng()
         H, W = mask.shape
 
         mask_area = float(mask.sum())
-        base_step = max(1.0, float(np.sqrt(mask_area / target_stitches)))
+        spacing_target = target_stitches if target_stitches > 0 else int(mask_area / 4)
+        base_step = max(1.0, float(np.sqrt(mask_area / max(spacing_target, 1))))
         min_dist = base_step * 0.7 * (1.0 - float(overlap_tolerance))
         check_self_avoid = min_dist > 0.0
         cell_size = min_dist if check_self_avoid else base_step
@@ -68,34 +72,59 @@ class BrownianWalk:
             return float(density[iy, ix])
 
         flat_d = density.flatten()
-        if flat_d.sum() > 0:
-            idx = int(rng.choice(flat_d.size, p=flat_d / flat_d.sum()))
-        else:
-            ys, xs = np.where(mask)
-            i = int(rng.integers(0, xs.size))
-            idx = int(ys[i]) * W + int(xs[i])
-        x = (idx % W) + 0.5
-        y = (idx // W) + 0.5
+        d_probs = (flat_d / flat_d.sum()) if flat_d.sum() > 0 else None
 
-        polyline: Polyline = [(x, y)]
+        def pick_seed() -> tuple[float, float] | None:
+            if d_probs is not None:
+                last: tuple[float, float] | None = None
+                for _ in range(50):
+                    idx = int(rng.choice(flat_d.size, p=d_probs))
+                    sx = (idx % W) + 0.5
+                    sy = (idx // W) + 0.5
+                    last = (sx, sy)
+                    if is_clear(sx, sy):
+                        return (sx, sy)
+                return last
+            ys, xs = np.where(mask)
+            if xs.size == 0:
+                return None
+            i = int(rng.integers(0, xs.size))
+            return (float(xs[i]) + 0.5, float(ys[i]) + 0.5)
+
+        seed = pick_seed()
+        if seed is None:
+            return []
+        x, y = seed
+
+        segments: list[Polyline] = []
+        current: Polyline = [(x, y)]
         add_point(x, y)
 
-        while len(polyline) < target_stitches:
+        if unlimited:
+            sat_radius_sq = max(min_dist, base_step * 0.5) ** 2
+            saturation = max(target_stitches, int(mask_area / (sat_radius_sq * 3.14159 / 4)))
+            total_cap = min(200_000, int(saturation * 1.5))
+        else:
+            total_cap = target_stitches
+        consecutive_jump_failures = 0
+        max_consecutive_failures = 8
+
+        def total_stitches() -> int:
+            return sum(len(s) for s in segments) + len(current)
+
+        while total_stitches() < total_cap:
             local_d = density_at(x, y)
             step = base_step * (1.5 - local_d)
             angles = rng.uniform(0.0, 2.0 * np.pi, N_CANDIDATE_DIRECTIONS)
 
             best: tuple[float, float] | None = None
             best_density = -1.0
-            fallback: tuple[float, float] | None = None
 
             for angle in angles:
                 nx = x + step * float(np.cos(angle))
                 ny = y + step * float(np.sin(angle))
                 if not inside(nx, ny):
                     continue
-                if fallback is None:
-                    fallback = (nx, ny)
                 if not is_clear(nx, ny):
                     continue
                 nd = density_at(nx, ny)
@@ -103,12 +132,30 @@ class BrownianWalk:
                     best_density = nd
                     best = (nx, ny)
 
-            chosen = best if best is not None else fallback
-            if chosen is None:
-                break
+            if best is None:
+                if current:
+                    segments.append(current)
+                current = []
+                new_seed = pick_seed()
+                if new_seed is None:
+                    break
+                nsx, nsy = new_seed
+                if not is_clear(nsx, nsy):
+                    consecutive_jump_failures += 1
+                    if consecutive_jump_failures >= max_consecutive_failures:
+                        break
+                    continue
+                consecutive_jump_failures = 0
+                x, y = nsx, nsy
+                current = [(x, y)]
+                add_point(x, y)
+                continue
 
-            x, y = chosen
-            polyline.append((x, y))
+            consecutive_jump_failures = 0
+            x, y = best
+            current.append((x, y))
             add_point(x, y)
 
-        return polyline
+        if current:
+            segments.append(current)
+        return [s for s in segments if s]

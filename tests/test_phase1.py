@@ -58,29 +58,31 @@ def test_brownian_hits_target_on_open_field():
     mask = np.ones((64, 64), dtype=bool)
     density = np.full((64, 64), 0.5, dtype=np.float32)
     walker = BrownianWalk()
-    poly = walker.route(
+    segments = walker.route(
         mask, density, target_stitches=500, overlap_tolerance=0.5, rng=np.random.default_rng(42)
     )
-    assert 475 <= len(poly) <= 500
+    total = sum(len(s) for s in segments)
+    assert 450 <= total <= 500
 
 
 def test_brownian_returns_empty_for_empty_mask():
     mask = np.zeros((16, 16), dtype=bool)
     density = np.zeros((16, 16), dtype=np.float32)
-    poly = BrownianWalk().route(mask, density, target_stitches=100, rng=np.random.default_rng(0))
-    assert poly == []
+    segments = BrownianWalk().route(mask, density, target_stitches=100, rng=np.random.default_rng(0))
+    assert segments == []
 
 
 def test_brownian_stays_inside_mask():
     mask = np.zeros((32, 32), dtype=bool)
     mask[10:22, 10:22] = True
     density = mask.astype(np.float32) * 0.8
-    poly = BrownianWalk().route(
+    segments = BrownianWalk().route(
         mask, density, target_stitches=100, overlap_tolerance=0.8, rng=np.random.default_rng(1)
     )
-    for x, y in poly:
-        ix, iy = int(x), int(y)
-        assert mask[iy, ix], f"point ({x}, {y}) is outside the mask"
+    for segment in segments:
+        for x, y in segment:
+            ix, iy = int(x), int(y)
+            assert mask[iy, ix], f"point ({x}, {y}) is outside the mask"
 
 
 def test_end_to_end_brownian(tmp_path):

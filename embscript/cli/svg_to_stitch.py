@@ -39,10 +39,12 @@ def main(argv: list[str] | None = None) -> int:
     layers = parse_layers(args.svg)
     write_pattern(args.output, layers, args.format)
 
-    total = sum(len(p) for _, p in layers)
-    non_empty = sum(1 for _, p in layers if p)
+    total = sum(len(seg) for _, segments in layers for seg in segments)
+    non_empty = sum(1 for _, segments in layers if any(segments))
+    total_segments = sum(len(segments) for _, segments in layers)
     print(
-        f"Wrote {args.output} — {total} stitches across {non_empty} color(s)",
+        f"Wrote {args.output} — {total} stitches across {non_empty} color(s) "
+        f"in {total_segments} segment(s)",
         file=sys.stderr,
     )
     return 0

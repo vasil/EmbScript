@@ -25,9 +25,12 @@ class BrickFill:
         mask: np.ndarray,
         density: np.ndarray,
         target_stitches: int,
+        *,
+        row_pitch_px: float | None = None,
+        stitch_length_px: float | None = None,
         **_: object,
     ) -> list[Polyline]:
-        if target_stitches <= 0 or not mask.any():
+        if not mask.any():
             return []
 
         H, W = mask.shape
@@ -35,6 +38,17 @@ class BrickFill:
         y_min, y_max = int(ys.min()), int(ys.max())
         x_min, x_max = int(xs.min()), int(xs.max())
         mask_area = float(mask.sum())
+
+        if row_pitch_px is not None:
+            row_pitch = max(PITCH_MIN, float(row_pitch_px))
+            stitch_length = max(PITCH_MIN, float(stitch_length_px) if stitch_length_px else row_pitch)
+            polyline = self._fill_pass(
+                mask, density, row_pitch, stitch_length, W, H, x_min, x_max, y_min, y_max
+            )
+            return [polyline] if polyline else []
+
+        if target_stitches <= 0:
+            return []
 
         pitch = max(PITCH_MIN, float(np.sqrt(mask_area / target_stitches)))
         pitch_lo = PITCH_MIN
@@ -44,7 +58,7 @@ class BrickFill:
         best_err = float("inf")
 
         for _ in range(MAX_PITCH_ITERATIONS):
-            polyline = self._fill_pass(mask, density, pitch, W, H, x_min, x_max, y_min, y_max)
+            polyline = self._fill_pass(mask, density, pitch, pitch, W, H, x_min, x_max, y_min, y_max)
             err = abs(len(polyline) - target_stitches)
             if err < best_err:
                 best_err = err
@@ -63,7 +77,8 @@ class BrickFill:
     def _fill_pass(
         mask: np.ndarray,
         density: np.ndarray,
-        pitch: float,
+        row_pitch: float,
+        stitch_length: float,
         W: int,
         H: int,
         x_min: int,
@@ -77,7 +92,7 @@ class BrickFill:
         direction = 1
 
         while y <= y_max + 0.5:
-            offset = (row % 2) * (pitch / 2.0)
+            offset = (row % 2) * (row_pitch / 2.0)
             if direction == 1:
                 x = x_min + offset + 0.5
             else:
@@ -91,12 +106,12 @@ class BrickFill:
                     polyline.append((x, y))
                 cx = min(W - 1, max(0, ix))
                 cy = min(H - 1, max(0, iy))
-                stride = pitch * (1.5 - float(density[cy, cx]))
+                stride = stitch_length * (1.5 - float(density[cy, cx]))
                 if stride < PITCH_MIN:
                     stride = PITCH_MIN
                 x += direction * stride
 
-            y += pitch
+            y += row_pitch
             row += 1
             direction *= -1
 

@@ -31,6 +31,24 @@ def test_brick_returns_empty_for_empty_mask():
     assert BrickFill().route(mask, density, target_stitches=100) == []
 
 
+def test_brick_with_row_pitch_kwarg_does_one_pass():
+    mask = np.ones((30, 30), dtype=bool)
+    density = np.full((30, 30), 0.5, dtype=np.float32)
+    # Direct mode: row pitch 2 px, stitch length 5 px.
+    segments = BrickFill().route(
+        mask, density, target_stitches=0, row_pitch_px=2.0, stitch_length_px=5.0
+    )
+    assert len(segments) == 1
+    poly = segments[0]
+    # Row count should be ~ ceil(30 / 2) = 15.
+    distinct_ys = sorted(set(round(y, 2) for _, y in poly))
+    assert 10 <= len(distinct_ys) <= 20
+    # Stitches per row should be ~ ceil(30 / (5 * (1.5 - 0.5))) = 6.
+    by_row = {y: [x for x, yy in poly if round(yy, 2) == y] for y in distinct_ys}
+    avg_stitches_per_row = sum(len(v) for v in by_row.values()) / len(by_row)
+    assert 4 <= avg_stitches_per_row <= 10
+
+
 def test_brick_alternates_row_direction():
     mask = np.ones((64, 64), dtype=bool)
     density = np.full((64, 64), 0.5, dtype=np.float32)

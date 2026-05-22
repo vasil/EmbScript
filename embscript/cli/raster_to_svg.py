@@ -198,6 +198,17 @@ def main(argv: list[str] | None = None) -> int:
     for m in masks:
         union_mask |= m
 
+    brick_kwargs: dict[str, float] = {}
+    if args.method == "brick" and args.opacity is not None:
+        row_pitch_mm = args.thread_width_mm / max(args.opacity, 1e-6)
+        brick_kwargs["row_pitch_px"] = row_pitch_mm / scale
+        brick_kwargs["stitch_length_px"] = max_stitch_px
+        print(
+            f"Brick fill: row pitch {row_pitch_mm:.3f} mm "
+            f"({brick_kwargs['row_pitch_px']:.2f} px), stitch length {args.max_stitch_mm} mm",
+            file=sys.stderr,
+        )
+
     layers: list[tuple[str, list[list[tuple[float, float]]]]] = []
     total_actual = 0
     for k in range(args.colors):
@@ -208,6 +219,7 @@ def main(argv: list[str] | None = None) -> int:
             overlap_tolerance=args.overlap_tolerance,
             rng=rng,
             unlimited=args.fill,
+            **brick_kwargs,
         )
         merged_px: list[tuple[float, float]] = []
         for seg in segments_px:

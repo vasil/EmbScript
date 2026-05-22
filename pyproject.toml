@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "embscript"
+version = "0.0.1"
+description = "Two-stage embroidery digitization pipeline: raster → SVG → stitch file."
+requires-python = ">=3.10"
+authors = [{ name = "Vasil Taneski", email = "vasil@taneski.com" }]
+dependencies = [
+    "numpy>=1.24",
+    "Pillow>=10.0",
+    "scikit-learn>=1.3",
+    "svgwrite>=1.4",
+    "svgpathtools>=1.6",
+    "pyembroidery>=1.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.scripts]
+embscript-raster = "embscript.cli.raster_to_svg:main"
+embscript-stitch = "embscript.cli.svg_to_stitch:main"
+
+[tool.setuptools.packages.find]
+include = ["embscript*"]

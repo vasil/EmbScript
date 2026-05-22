@@ -55,10 +55,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--separation",
-        choices=["kmeans", "cmyk"],
+        choices=["kmeans", "cmyk", "palette"],
         default="kmeans",
-        help="Color separation method. 'kmeans' clusters pixels into --colors palette "
-        "entries; 'cmyk' decomposes into cyan/magenta/yellow/black (fixed 4 layers).",
+        help="Color separation method. 'kmeans' clusters pixels into --colors with "
+        "luminance-weighted density (stencil/stipple style); 'palette' is kmeans with "
+        "flat density per region (each region fills uniformly in its detected color); "
+        "'cmyk' decomposes into cyan/magenta/yellow/black (fixed 4 layers).",
     )
     p.add_argument(
         "--method",
@@ -140,6 +142,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.separation == "cmyk":
         masks, densities, palette = cmyk_separate(rgb)
         args.colors = 4
+    elif args.separation == "palette":
+        if args.colors is None:
+            build_parser().error("--colors is required for --separation palette")
+        masks, palette = separate(rgb, args.colors)
+        densities = [masks[k].astype(np.float32) for k in range(args.colors)]
     else:
         if args.colors is None:
             build_parser().error("--colors is required for --separation kmeans")

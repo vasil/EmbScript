@@ -6,7 +6,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from embscript.phase2.stitch_writer import SUPPORTED_FORMATS
+from embscript.phase2.stitch_writer import SUPPORTED_FORMATS, write_pattern
+from embscript.phase2.svg_parser import parse_layers
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -27,7 +28,24 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    raise NotImplementedError("Phase 2 pipeline not yet implemented")
+
+    out_ext = args.output.suffix.lstrip(".").lower()
+    if out_ext and out_ext != args.format:
+        print(
+            f"warning: output extension .{out_ext} does not match --format {args.format}",
+            file=sys.stderr,
+        )
+
+    layers = parse_layers(args.svg)
+    write_pattern(args.output, layers, args.format)
+
+    total = sum(len(p) for _, p in layers)
+    non_empty = sum(1 for _, p in layers if p)
+    print(
+        f"Wrote {args.output} — {total} stitches across {non_empty} color(s)",
+        file=sys.stderr,
+    )
+    return 0
 
 
 if __name__ == "__main__":

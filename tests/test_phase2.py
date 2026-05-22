@@ -109,6 +109,7 @@ def test_end_to_end_pipeline(tmp_path):
             "--colors", "2",
             "--method", "brownian",
             "--overlap-tolerance", "0.5",
+            "--max-stitch-mm", "0",
             "--seed", "42",
             "--output", str(svg_path),
         ]

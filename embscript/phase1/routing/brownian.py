@@ -96,8 +96,7 @@ class BrownianWalk:
             return []
         x, y = seed
 
-        segments: list[Polyline] = []
-        current: Polyline = [(x, y)]
+        polyline: Polyline = [(x, y)]
         add_point(x, y)
 
         if unlimited:
@@ -109,10 +108,7 @@ class BrownianWalk:
         consecutive_jump_failures = 0
         max_consecutive_failures = 8
 
-        def total_stitches() -> int:
-            return sum(len(s) for s in segments) + len(current)
-
-        while total_stitches() < total_cap:
+        while len(polyline) < total_cap:
             local_d = density_at(x, y)
             step = base_step * (1.5 - local_d)
             angles = rng.uniform(0.0, 2.0 * np.pi, N_CANDIDATE_DIRECTIONS)
@@ -133,9 +129,6 @@ class BrownianWalk:
                     best = (nx, ny)
 
             if best is None:
-                if current:
-                    segments.append(current)
-                current = []
                 new_seed = pick_seed()
                 if new_seed is None:
                     break
@@ -147,15 +140,13 @@ class BrownianWalk:
                     continue
                 consecutive_jump_failures = 0
                 x, y = nsx, nsy
-                current = [(x, y)]
+                polyline.append((x, y))
                 add_point(x, y)
                 continue
 
             consecutive_jump_failures = 0
             x, y = best
-            current.append((x, y))
+            polyline.append((x, y))
             add_point(x, y)
 
-        if current:
-            segments.append(current)
-        return [s for s in segments if s]
+        return [polyline] if polyline else []

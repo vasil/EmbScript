@@ -97,6 +97,7 @@ def test_end_to_end_brownian(tmp_path):
             "--colors", "2",
             "--method", "brownian",
             "--overlap-tolerance", "0.5",
+            "--max-stitch-mm", "0",
             "--seed", "42",
             "--output", str(out),
         ]

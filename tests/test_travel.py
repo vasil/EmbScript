@@ -4,7 +4,7 @@ import math
 
 import numpy as np
 
-from embscript.phase1.travel import bfs_path, enforce_max_step, resample_path
+from embscript.phase1.travel import bfs_path, enforce_max_step, goal_walk, resample_path
 
 
 def test_bfs_path_connects_disconnected_regions_via_bridge():
@@ -62,3 +62,33 @@ def test_enforce_max_step_keeps_short_segments_unchanged():
     poly = [(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)]
     out = enforce_max_step(poly, max_step_px=3.0, union_mask=None)
     assert out == poly
+
+
+def test_goal_walk_reaches_goal_via_mask():
+    mask = np.ones((40, 40), dtype=bool)
+    rng = np.random.default_rng(0)
+    path = goal_walk(mask, (5.0, 5.0), (35.0, 35.0), max_step=2.0, rng=rng, chaos=0.6)
+    assert path is not None
+    assert path[0] == (5.0, 5.0)
+    assert path[-1] == (35.0, 35.0)
+    for a, b in zip(path, path[1:]):
+        assert math.hypot(b[0] - a[0], b[1] - a[1]) <= 2.0 + 1e-6
+
+
+def test_goal_walk_is_not_grid_aligned():
+    mask = np.ones((60, 60), dtype=bool)
+    rng = np.random.default_rng(0)
+    path = goal_walk(mask, (5.0, 5.0), (55.0, 55.0), max_step=2.0, rng=rng, chaos=0.7)
+    assert path is not None
+    diagonal_steps = 0
+    axial_steps = 0
+    for a, b in zip(path, path[1:]):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        if abs(dx) < 0.1 or abs(dy) < 0.1:
+            axial_steps += 1
+        else:
+            diagonal_steps += 1
+    assert diagonal_steps > axial_steps, (
+        f"goal_walk should mostly take non-axial steps; got "
+        f"diagonal={diagonal_steps}, axial={axial_steps}"
+    )

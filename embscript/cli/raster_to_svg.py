@@ -27,7 +27,26 @@ def build_parser() -> argparse.ArgumentParser:
         description="Convert a raster image into a color-layered SVG with one continuous path per color.",
     )
     p.add_argument("--image", type=Path, required=True, help="Input raster image (PNG/JPEG/...).")
-    p.add_argument("--stitches", type=int, required=True, help="Target total stitch count (±~5%).")
+    p.add_argument(
+        "--stitches",
+        type=int,
+        default=None,
+        help="Target total stitch count (±~5%). Required unless --opacity is given.",
+    )
+    p.add_argument(
+        "--thread-width-mm",
+        type=float,
+        default=0.4,
+        help="Effective thread width in mm (default 0.4, ~40wt rayon). Used with --opacity.",
+    )
+    p.add_argument(
+        "--opacity",
+        type=float,
+        default=None,
+        help="Auto-compute --stitches for the requested fabric coverage (1.0 = full single-pass, "
+        "2.0 = double-pass). Per layer: integrated_density_mm² * opacity / "
+        "(max_stitch_mm * thread_width_mm). Overrides --stitches.",
+    )
     p.add_argument(
         "--colors",
         type=int,
@@ -134,14 +153,34 @@ def main(argv: list[str] | None = None) -> int:
     if args.binarize:
         for k in range(args.colors):
             densities[k] = masks[k].astype(np.float32)
+
+    width_mm, height_mm = _canvas_size(w_px, h_px, args.width, args.height)
+    scale = width_mm / w_px
+    max_stitch_px = args.max_stitch_mm / scale
+    pixel_area_mm2 = scale * scale
+
+    if args.opacity is not None:
+        per_layer_targets = []
+        for k in range(args.colors):
+            effective_area_mm2 = float(densities[k].sum()) * pixel_area_mm2
+            per_layer_targets.append(
+                int(effective_area_mm2 * args.opacity / (args.max_stitch_mm * args.thread_width_mm))
+            )
+        args.stitches = max(sum(per_layer_targets), 1)
+        print(
+            f"Opacity {args.opacity} @ thread {args.thread_width_mm} mm: "
+            f"auto-target {args.stitches} stitches "
+            f"(per-layer {per_layer_targets})",
+            file=sys.stderr,
+        )
+    elif args.stitches is None:
+        build_parser().error("--stitches or --opacity is required")
+
     budgets = allocate(densities, args.stitches)
 
     rng = np.random.default_rng(args.seed)
     method = METHODS[args.method]()
 
-    width_mm, height_mm = _canvas_size(w_px, h_px, args.width, args.height)
-    scale = width_mm / w_px
-    max_stitch_px = args.max_stitch_mm / scale
     print(
         f"Canvas: {width_mm:.3f} x {height_mm:.3f} mm, "
         f"max stitch {args.max_stitch_mm} mm ({max_stitch_px:.2f} px)",
@@ -167,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
         for seg in segments_px:
             merged_px.extend(seg)
         if merged_px:
-            merged_px = enforce_max_step(merged_px, max_stitch_px, union_mask)
+            merged_px = enforce_max_step(merged_px, max_stitch_px, union_mask, rng=rng)
 
         layer_count = len(merged_px)
         total_actual += layer_count

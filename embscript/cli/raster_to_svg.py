@@ -95,6 +95,15 @@ def build_parser() -> argparse.ArgumentParser:
         "density 1.0. Produces black-and-white output instead of gradient.",
     )
     p.add_argument(
+        "--travel-close-px",
+        type=int,
+        default=2,
+        help="Morphological closing iterations on the union mask used for travel "
+        "pathfinding (default 2). Higher bridges wider gaps between near-disconnected "
+        "regions so the thread doesn't fall back to a straight jump across blank fabric. "
+        "Set to 0 to disable bridging.",
+    )
+    p.add_argument(
         "--max-stitch-mm",
         type=float,
         default=DEFAULT_MAX_STITCH_MM,
@@ -197,6 +206,10 @@ def main(argv: list[str] | None = None) -> int:
     union_mask = np.zeros((h_px, w_px), dtype=bool)
     for m in masks:
         union_mask |= m
+    travel_mask = union_mask
+    if args.travel_close_px > 0 and union_mask.any():
+        from scipy.ndimage import binary_closing
+        travel_mask = binary_closing(union_mask, iterations=args.travel_close_px)
 
     brick_kwargs: dict[str, float] = {}
     if args.method == "brick" and args.opacity is not None:
@@ -225,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
         for seg in segments_px:
             merged_px.extend(seg)
         if merged_px:
-            merged_px = enforce_max_step(merged_px, max_stitch_px, union_mask, rng=rng)
+            merged_px = enforce_max_step(merged_px, max_stitch_px, travel_mask, rng=rng)
 
         layer_count = len(merged_px)
         total_actual += layer_count

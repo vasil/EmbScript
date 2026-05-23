@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>EmbScript polyline animation</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; background: #fafafa; color: #111; }
+  #controls { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+  #controls input[type=text] { flex: 1; min-width: 240px; padding: 6px; }
+  #controls label { display: flex; gap: 4px; align-items: center; }
+  #canvas { background: white; border: 1px solid #ddd; min-height: 200px; }
+  #canvas svg { max-width: 100%; height: auto; }
+  #status { font-family: monospace; padding: 6px 0; color: #555; }
+</style>
+</head>
+<body>
+  <div id="controls">
+    <input type="text" id="svgPath" value="output/perl_brownian_bridged.svg" />
+    <label>speed (mm/s):
+      <input type="number" id="speed" value="500" min="10" max="50000" step="10" />
+    </label>
+    <button id="loadBtn">Load &amp; animate</button>
+    <button id="restartBtn">Restart</button>
+  </div>
+  <div id="status"></div>
+  <div id="canvas"></div>
+
+<script>
+const $canvas = document.getElementById('canvas');
+const $status = document.getElementById('status');
+const $speed  = document.getElementById('speed');
+const $path   = document.getElementById('svgPath');
+
+let currentTimer = null;
+let polylines    = [];
+
+function setStatus(msg) { $status.textContent = msg; }
+
+async function loadSvg() {
+  if (currentTimer) { clearTimeout(currentTimer); currentTimer = null; }
+  $canvas.innerHTML = '';
+  polylines = [];
+
+  const path = $path.value.trim();
+  try {
+    const res = await fetch(path, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    $canvas.innerHTML = text;
+  } catch (err) {
+    setStatus('load error: ' + err.message);
+    return;
+  }
+  const svg = $canvas.querySelector('svg');
+  if (!svg) { setStatus('no <svg> in file'); return; }
+  // Make sure inline SVG scales to container width
+  svg.removeAttribute('width');
+  svg.removeAttribute('height');
+  svg.style.width = '100%';
+  svg.style.height = 'auto';
+
+  polylines = Array.from(svg.querySelectorAll('polyline'));
+  setStatus(`loaded ${polylines.length} polylines`);
+  animate();
+}
+
+function animate() {
+  if (currentTimer) { clearTimeout(currentTimer); currentTimer = null; }
+  // Reset every polyline to hidden.
+  for (const pl of polylines) {
+    const length = pl.getTotalLength();
+    pl.style.transition = 'none';
+    pl.style.strokeDasharray  = length;
+    pl.style.strokeDashoffset = length;
+  }
+  // Force a reflow so the no-transition reset takes effect.
+  void $canvas.offsetWidth;
+
+  const speed_mm_per_s = Math.max(1, Number($speed.value) || 500);
+  let acc = 0;
+  let i   = 0;
+
+  function step() {
+    if (i >= polylines.length) {
+      setStatus(`done — ${polylines.length} polylines, total length ${acc.toFixed(1)} mm`);
+      return;
+    }
+    const pl = polylines[i];
+    const length = pl.getTotalLength();
+    const duration_ms = (length / speed_mm_per_s) * 1000;
+    pl.style.transition = `stroke-dashoffset ${duration_ms}ms linear`;
+    // Trigger the transition on the next frame.
+    requestAnimationFrame(() => {
+      pl.style.strokeDashoffset = 0;
+    });
+    setStatus(`polyline ${i + 1}/${polylines.length} — ${length.toFixed(1)} mm, ${duration_ms.toFixed(0)} ms`);
+    acc += length;
+    i += 1;
+    currentTimer = setTimeout(step, duration_ms);
+  }
+  step();
+}
+
+document.getElementById('loadBtn').addEventListener('click', loadSvg);
+document.getElementById('restartBtn').addEventListener('click', animate);
+// Auto-load on first visit.
+loadSvg();
+</script>
+</body>
+</html>

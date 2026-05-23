@@ -45,6 +45,8 @@ The path through each color layer can be drawn by any of these methods (`--metho
 
 All chaotic methods share a `field_walk` helper that gives them density-weighted seeding, spatial-hash self-avoidance, and a saturation-aware stopping rule.
 
+See [`docs/ROUTING.md`](docs/ROUTING.md) for one paragraph per method with use cases, source-file links, and a side-by-side comparison strip.
+
 ## Color separation modes
 
 `--separation <mode>`:

@@ -11,6 +11,7 @@ import math
 from typing import Callable
 
 import numpy as np
+from scipy.ndimage import label as _label_components
 
 Polyline = list[tuple[float, float]]
 
@@ -53,11 +54,38 @@ def field_walk(
 
     spatial_hash: dict[tuple[int, int], list[tuple[float, float]]] = {}
 
+    labels, num_components = _label_components(mask)
+    labels = labels.astype(np.int32)
+    if num_components > 0:
+        component_sizes = np.bincount(labels.ravel(), minlength=num_components + 1)
+        # Only track meaningful components for coverage. Stipple/halftone inputs
+        # produce thousands of single-pixel components from k-means quantization;
+        # those are noise, not features that deserve their own seed.
+        largest_size = int(component_sizes[1:].max()) if num_components > 0 else 0
+        min_scout_size = max(4, largest_size // 100)
+        components_by_size = sorted(
+            (c for c in range(1, num_components + 1) if component_sizes[c] >= min_scout_size),
+            key=lambda c: int(component_sizes[c]),
+            reverse=True,
+        )
+    else:
+        components_by_size = []
+    visited_components: set[int] = set()
+    component_pixel_cache: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+
     def cell_key(x: float, y: float) -> tuple[int, int]:
         return (int(x / cell_size), int(y / cell_size))
 
+    def mark_visited(x: float, y: float) -> None:
+        iy = min(H - 1, max(0, int(y)))
+        ix = min(W - 1, max(0, int(x)))
+        lbl = int(labels[iy, ix])
+        if lbl > 0:
+            visited_components.add(lbl)
+
     def add_point(x: float, y: float) -> None:
         spatial_hash.setdefault(cell_key(x, y), []).append((x, y))
+        mark_visited(x, y)
 
     def is_clear(x: float, y: float) -> bool:
         if not check_self_avoid:
@@ -88,7 +116,34 @@ def field_walk(
     flat_d = density.flatten()
     d_probs = (flat_d / flat_d.sum()) if flat_d.sum() > 0 else None
 
+    def component_pixels(c: int) -> tuple[np.ndarray, np.ndarray]:
+        if c not in component_pixel_cache:
+            ys_c, xs_c = np.where(labels == c)
+            component_pixel_cache[c] = (xs_c, ys_c)
+        return component_pixel_cache[c]
+
     def pick_seed() -> tuple[float, float] | None:
+        # First: try to seed in any unvisited connected component (largest first).
+        # This guarantees small disconnected pieces of the mask (legs, etc.) get
+        # at least one seed even when density-weighting would always pick the
+        # dominant region.
+        for lbl in components_by_size:
+            if lbl in visited_components:
+                continue
+            xs_c, ys_c = component_pixels(lbl)
+            if xs_c.size == 0:
+                visited_components.add(lbl)
+                continue
+            for _ in range(50):
+                i = int(rng.integers(0, xs_c.size))
+                sx = float(xs_c[i]) + 0.5
+                sy = float(ys_c[i]) + 0.5
+                if is_clear(sx, sy):
+                    return (sx, sy)
+            # No clearable spot in this component (already saturated) — treat it
+            # as visited so we move on to the next unvisited component.
+            visited_components.add(lbl)
+        # Fallback: density-weighted picking (original behaviour).
         if d_probs is not None:
             last: tuple[float, float] | None = None
             for _ in range(50):
@@ -112,6 +167,19 @@ def field_walk(
 
     polyline: Polyline = [(x, y)]
     add_point(x, y)
+
+    # Scout-seed any remaining disconnected components. Without this, a small
+    # mask region (e.g. a camel's leg) never gets a stitch if the walker stays
+    # inside the dominant component for the whole budget.
+    for _ in range(len(components_by_size)):
+        if len(visited_components) >= len(components_by_size):
+            break
+        extra = pick_seed()
+        if extra is None:
+            break
+        polyline.append(extra)
+        add_point(*extra)
+    x, y = polyline[-1]
 
     if unlimited:
         sat_radius_sq = max(min_dist, base_step * 0.5) ** 2
